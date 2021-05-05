@@ -15,17 +15,21 @@ var options;
 
 // process options, break rendered markdeep into slides on <hr> tags (unless the
 // class "ignore" is set), kick off some other init tasks as well
-function initSlides() {
+function initSlides(targetElement) {
+    var body = targetElement || document.body
 
     // override default options with any differing user-specified options
-    processMarkdeepSlidesOptions();
+    if (!targetElement)
+        processMarkdeepSlidesOptions();
 
     // handle aspect ratio
-    document.documentElement.style.setProperty('--aspect-ratio', options.aspectRatio);
+    if (!targetElement)
+        document.documentElement.style.setProperty('--aspect-ratio', options.aspectRatio);
+    
     var sheet = document.createElement('style');
     sheet.innerHTML = "@page { size: 640px " + (640 / options.aspectRatio) + "px; }" +
         "@media print { .slide, .slide { --slide-width: 640px !important; --slide-height: " + (640 / options.aspectRatio) + "px; }";
-    document.body.appendChild(sheet);
+    body.appendChild(sheet);
 
     // handle theme
     var link = document.createElement('link');
@@ -35,15 +39,17 @@ function initSlides() {
     } else {
         link.setAttribute("href", "markdeep-slides/themes/" + options.theme + ".css");
     }
-    document.body.appendChild(link);
+    body.appendChild(link);
 
     // handle other options
-    document.documentElement.style.setProperty('--font-size', options.fontSize);
-    if (options.totalSlideNumber) {
-        document.documentElement.style.setProperty('--total-slide-number-display', 'inline');
-    }
-    if (!options.progressBar) {
-        document.documentElement.style.setProperty('--slide-progress-display', 'none');
+    if (!targetElement) {
+        document.documentElement.style.setProperty('--font-size', options.fontSize);
+        if (options.totalSlideNumber) {
+            document.documentElement.style.setProperty('--total-slide-number-display', 'inline');
+        }
+        if (!options.progressBar) {
+            document.documentElement.style.setProperty('--slide-progress-display', 'none');
+        }
     }
 
     // done with options processing – note that the diagramZoom,
@@ -51,7 +57,7 @@ function initSlides() {
     // referenced later on and need no further processing at this stage
 
     // break document into slides
-    var md = document.querySelector("body > .md");
+    var md = body.querySelector(":scope > .md");
     var es = Array.from(md.childNodes);
 
     function isHeadingSlideBreak(e) {
@@ -67,6 +73,7 @@ function initSlides() {
 
     var slides = [];
     var currentSlide = [];
+    var currentSlideCount = 0;
     var currentPresenterNotes = [];
     for (var i = 0; i < es.length; i++) {
         var e = es[i];
@@ -75,22 +82,22 @@ function initSlides() {
         if (isSlideBreak(e) || i == es.length - 1) {
             var slide = document.createElement('div');
             slide.className = "slide";
-            slide.id = "slide" + slideCount;
+            slide.id = "slide" + currentSlideCount;
 
             // slide number (skip title slide)
-            if (slideCount != 0) {
+            if (currentSlideCount != 0) {
                 var sn = document.createElement('div');
                 sn.className = "slide-number";
-                sn.innerHTML = `${slideCount}<span class="slide-number-total">/${totalSlideCount}</span>`;
+                sn.innerHTML = `${currentSlideCount}<span class="slide-number-total">/${totalSlideCount}</span>`;
                 slide.appendChild(sn);
             }
 
             // slide progress bar
-            if (slideCount != 0) {
+            if (currentSlideCount != 0) {
                 var sp = document.createElement('div');
                 sp.className = "slide-progress";
-                //sp.setAttribute("data-progress", slideCount / totalSlideCount);  // see commend in markdeep-slides.css
-                sp.setAttribute("style", "width: calc(" + slideCount / (totalSlideCount - 1) + " * var(--slide-width));");
+                //sp.setAttribute("data-progress", currentSlideCount / totalSlideCount);  // see commend in markdeep-slides.css
+                sp.setAttribute("style", "width: calc(" + currentSlideCount / (totalSlideCount - 1) + " * var(--slide-width));");
                 slide.appendChild(sp);
             }
 
@@ -120,7 +127,7 @@ function initSlides() {
             }
 
             slides.push(slide);
-            slideCount++;
+            currentSlideCount++;
             currentSlide = [];
             currentPresenterNotes = [];
 
@@ -151,20 +158,35 @@ function initSlides() {
     }
 
     // initialize mathjax
-    initMathJax();
+    if (!targetElement)
+        initMathJax();
+    else
+        runMathJax(targetElement);
 
     // fill in the current date for any elements with the .current-date class
-    document.querySelectorAll(".current-date").forEach(e => {
+    body.querySelectorAll(".current-date").forEach(e => {
         e.innerText = new Date().toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
     });
 
-    // further initialization steps
-    processLocationHash();
-    addLetterboxing();
-    relativizeDiagrams(options.diagramZoom);
-    pauseVideos();
+    if (!targetElement)
+        slideCount = currentSlideCount;
 
-    fullscreenActions();
+    // further initialization steps
+    if (!targetElement) {
+        processLocationHash();
+        addLetterboxing();
+    }
+    relativizeDiagrams(options.diagramZoom, targetElement);
+    pauseVideos(targetElement);
+
+    if (!targetElement)
+        fullscreenActions();
+    else {
+        return function() {
+            slideCount = currentSlideCount;
+            updateOnScroll();
+        }
+    }
 };
 
 // override default options with any differing user-specified options
@@ -192,6 +214,10 @@ function initMathJax() {
     script.type = "text/javascript";
     script.src = "markdeep-slides/lib/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_SVG";
     document.getElementsByTagName("head")[0].appendChild(script);
+}
+// run mathjax
+function runMathJax(element) {
+    MathJax.Hub.Queue(["Typeset",MathJax.Hub,element]);
 }
 
 // check if a slide is set via the location hash – if so, load it, else
@@ -249,14 +275,15 @@ window.addEventListener('resize', addLetterboxing);
 // wide (just to have a baseline value independent of window size on load;
 // this also matches width in print mode, which doesn't bring any advantages
 // but whatever)
-function relativizeDiagrams(diagramZoom) {
+function relativizeDiagrams(diagramZoom, targetElement) {
+    targetElement = targetElement || document
     var baseRem = 17.92;
     //var baseRem = parseFloat(getComputedStyle(document.documentElement).fontSize) * (640 / window.innerWidth);  // doesn't work in some browsers because the font size hasn't yet been set correctly when this function is executed
 
     // this factor works well as a baseline
     var zoom = 0.9 * diagramZoom;
 
-    document.querySelectorAll("svg.diagram").forEach(function(diag) {
+    targetElement.querySelectorAll("svg.diagram").forEach(function(diag) {
         function toRem(px) {
             return (parseFloat(px) / baseRem) + "rem";
         }
@@ -286,8 +313,9 @@ function relativizeDiagrams(diagramZoom) {
 }
 
 // pause all videos and store their "autoplay" attribute for later
-function pauseVideos() {
-    Array.from(document.getElementsByTagName("video")).forEach(function (video) {
+function pauseVideos(targetElement) {
+    targetElement = targetElement || document
+    Array.from(targetElement.getElementsByTagName("video")).forEach(function (video) {
         if (!video.hasAttribute("data-autoplay")) {
             video.setAttribute("data-autoplay", video.autoplay);
         }
@@ -701,3 +729,14 @@ document.body.onmousemove = function() {
         document.body.style.cursor = "none";
     }, 2000);
 };
+
+// compatible markdeep defaults
+if (!window.markdeepOptions) {
+    window.markdeepOptions = {
+        tocStyle: 'none',
+        detectMath: false,
+        onLoad: function(target) {
+            return initSlides(target);
+        }
+    };
+}
