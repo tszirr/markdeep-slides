@@ -216,8 +216,13 @@ function initMathJax() {
     document.getElementsByTagName("head")[0].appendChild(script);
 }
 // run mathjax
+var mathJaxReruns = 0;
 function runMathJax(element) {
-    MathJax.Hub.Queue(["Typeset",MathJax.Hub,element]);
+    var mathJaxRun = ++mathJaxReruns;
+    window.setTimeout(function () {
+        if (mathJaxRun == mathJaxReruns)
+            MathJax.Hub.Queue(["Typeset",MathJax.Hub,element]);
+    }, 250);
 }
 
 // check if a slide is set via the location hash – if so, load it, else
