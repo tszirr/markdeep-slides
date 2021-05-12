@@ -216,13 +216,14 @@ function initMathJax() {
     document.getElementsByTagName("head")[0].appendChild(script);
 }
 // run mathjax
-var mathJaxReruns = 0;
 function runMathJax(element) {
-    var mathJaxRun = ++mathJaxReruns;
-    window.setTimeout(function () {
-        if (mathJaxRun == mathJaxReruns)
-            MathJax.Hub.Queue(["Typeset",MathJax.Hub,element]);
-    }, 250);
+    var queueArray = MathJax.Hub.queue.queue;
+    if (queueArray) {
+        for (var i = queueArray.length; i-- > 0; )
+            if (queueArray[i].hook.name === "Typeset")
+                queueArray.splice(i, 1);
+    }
+    MathJax.Hub.Queue(["Typeset",MathJax.Hub,element]);
 }
 
 // check if a slide is set via the location hash – if so, load it, else
